@@ -8,10 +8,12 @@
 
 ## 项目结构
 
-├── biped.urdf # 二足机器人 URDF 模型
+```text
+.
+├── biped.urdf             # 二足机器人 URDF 模型
 ├── envs/
-│ └── biped_env.py # 自定义 Gymnasium 环境
-├── train_sac.py # 训练脚本
-├── models/ # 训练后保存的模型与 VecNormalize 统计量
-├── logs/ # TensorBoard 日志
-└── README.md # 本文档
+│   └── biped_env.py       # 自定义 Gymnasium 环境
+├── train_sac.py           # 训练脚本
+├── models/                # 训练后保存的模型与 VecNormalize 统计量
+├── logs/                  # TensorBoard 日志
+└── README.md              # 本文档
