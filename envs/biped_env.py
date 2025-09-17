@@ -1,7 +1,6 @@
 import os
 import time
 from typing import Dict, Tuple
-
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -11,11 +10,11 @@ import pybullet_data
 
 class BipedEnv(gym.Env):
     """
-    二足机器人环境 (Gymnasium API):
+    二足机器人环境 (SG90 适配版):
     - 关节：left_hip, left_knee, right_hip, right_knee
     - 动作：目标角度增量控制
     - 状态：姿态 + 高度 + 关节状态 + 速度
-    - 奖励：前向速度、直线保持、稳定性、动作平滑
+    - 奖励：前向速度、前进距离、直线保持、稳定性、动作平滑
     """
 
     metadata = {"render_modes": ["human"]}
@@ -26,18 +25,18 @@ class BipedEnv(gym.Env):
         urdf_path: str = "biped.urdf",
         render: bool = False,
         sim_timestep: float = 1.0 / 240.0,
-        action_delta_limit: float = 0.10,
-        kp: float = 0.9,
+        action_delta_limit: float = 0.30,
+        kp: float = 1.5,
         kd: float = 0.05,
-        max_force_hip: float = 60.0,
-        max_force_knee: float = 40.0,
+        max_force_hip: float = 0.2,   # SG90 力矩 ≈ 0.2 N·m
+        max_force_knee: float = 0.2,
         episode_len: int = 2000,
         seed: int = 0,
-        # reward shaping weights
-        w_forward: float = 1.0,
+        # 奖励 shaping
+        w_forward: float = 2.0,   # 前进速度奖励系数
         w_straight: float = 0.05,
         w_stability: float = 0.05,
-        w_smooth: float = 0.01,
+        w_smooth: float = 0.05,
         survival_bonus: float = 0.02,
         fall_penalty: float = 2.0,
     ):
@@ -60,7 +59,7 @@ class BipedEnv(gym.Env):
         self.survival_bonus = survival_bonus
         self.fall_penalty = fall_penalty
 
-        # 连接仿真
+        # 仿真连接
         if render:
             self.cid = p.connect(p.GUI)
         else:
@@ -76,6 +75,8 @@ class BipedEnv(gym.Env):
         self.joint_limits: Dict[str, Tuple[float, float]] = {}
         self.target_q = None
         self.step_count = 0
+        self.last_x = 0.0
+        self.last_action = np.zeros(4, dtype=np.float32)
 
         # 观测空间
         high = np.array(
@@ -83,8 +84,6 @@ class BipedEnv(gym.Env):
             dtype=np.float32,
         )
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
-
-        # 动作空间
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
 
         self.reset()
@@ -92,7 +91,7 @@ class BipedEnv(gym.Env):
     # ------------------ 内部方法 ------------------
     def _load_robot(self):
         urdf_abspath = os.path.abspath(self.urdf_path)
-        self.robot_id = p.loadURDF(urdf_abspath, [0, 0, 0.4], useFixedBase=False)
+        self.robot_id = p.loadURDF(urdf_abspath, [0, 0, 0.5], useFixedBase=False)
 
         self.joint_name_to_index.clear()
         self.joint_limits.clear()
@@ -104,10 +103,9 @@ class BipedEnv(gym.Env):
             lower, upper = info[8], info[9]
             if jtype == p.JOINT_REVOLUTE and name in self.JOINT_NAMES:
                 self.joint_name_to_index[name] = j
-                if lower >= upper:  # urdf 没写限位 → 给个默认值
-                    lower, upper = (-1.2, 1.2) if "hip" in name else (0.0, 2.0)
                 self.joint_limits[name] = (lower, upper)
 
+        # 初始设为无力矩控制
         for idx in self.joint_name_to_index.values():
             p.setJointMotorControl2(self.robot_id, idx, controlMode=p.VELOCITY_CONTROL, force=0.0)
 
@@ -119,15 +117,19 @@ class BipedEnv(gym.Env):
 
     def _set_pose(self):
         base_pos = [0, 0, 0.4]
-        base_orn = p.getQuaternionFromEuler([0.0, 0.05, 0.0])
+        base_orn = p.getQuaternionFromEuler([0.0, 0.0, 0.0])
         p.resetBasePositionAndOrientation(self.robot_id, base_pos, base_orn)
 
-        stand = {"left_hip": 0.0, "left_knee": 0.7, "right_hip": 0.0, "right_knee": 0.7}
+        stand = {"left_hip": 0.0, "left_knee": 0.0, "right_hip": 0.0, "right_knee": 0.0}
         for name, q in stand.items():
             idx = self.joint_name_to_index[name]
             p.resetJointState(self.robot_id, idx, q, 0.0)
 
         self.target_q = np.array([stand[n] for n in self.JOINT_NAMES], dtype=np.float32)
+
+        pos, _ = p.getBasePositionAndOrientation(self.robot_id)
+        self.last_x = pos[0]
+        self.last_action = np.zeros(4, dtype=np.float32)
 
     def _get_obs(self):
         pos, orn = p.getBasePositionAndOrientation(self.robot_id)
@@ -166,30 +168,64 @@ class BipedEnv(gym.Env):
 
     def _compute_reward_done(self, obs, action):
         roll, pitch, yaw, base_z, vx, vy = obs[:6]
-        r_forward = self.w_forward * np.tanh(vx)
-        r_straight = -self.w_straight * (abs(yaw) + 0.2 * abs(vy))
-        r_stability = -self.w_stability * (abs(roll) + abs(pitch))
-        r_smooth = -self.w_smooth * np.linalg.norm(action, ord=1)
-        r_alive = self.survival_bonus
-        reward = float(r_alive + r_forward + r_straight + r_stability + r_smooth)
 
+        # --- 存活奖励 ---
+        r_alive = self.survival_bonus
+
+        # --- 是否直立 ---
+        upright = 1.0 if base_z > 0.25 and abs(roll) < 0.4 and abs(pitch) < 0.4 else 0.0
+
+        # --- 前进奖励（只有直立时才有） ---
+        r_forward = self.w_forward * max(vx, 0.0) * upright
+
+        # --- 前进距离奖励 ---
+        pos, _ = p.getBasePositionAndOrientation(self.robot_id)
+        dx = pos[0] - self.last_x
+        self.last_x = pos[0]
+        r_distance = 1.0 * max(dx, 0.0) * upright
+
+        # --- 高度奖励 ---
+        r_height = 2.0 * max(base_z - 0.25, 0)
+
+        # --- 稳定性奖励 ---
+        r_stability = self.w_stability if upright else 0.0
+
+        # --- 动作平滑奖励 ---
+        r_smooth = -self.w_smooth * np.linalg.norm(action - self.last_action)
+        self.last_action = action.copy()
+
+        # --- 侧移 & 偏航惩罚 ---
+        r_side_penalty = -0.1 * abs(vy)
+        r_heading = -0.05 * abs(yaw)
+
+        # --- 步态奖励（可选：左右髋关节差异） ---
+        left_hip_angle = obs[6]
+        right_hip_angle = obs[8]
+        r_gait = 0.05 * abs(left_hip_angle - right_hip_angle)
+
+        # --- 总奖励 ---
+        reward = float(
+            r_alive + r_forward + r_distance + r_height +
+            r_stability + r_smooth +
+            r_side_penalty + r_heading + r_gait
+        )
+
+        # --- 终止条件 ---
         terminated = False
         truncated = False
-        if base_z < 0.18 or abs(roll) > 0.8 or abs(pitch) > 0.8:
+        if base_z < 0.2 or abs(roll) > 0.6 or abs(pitch) > 0.6:
             terminated = True
-            reward -= float(self.fall_penalty)
+            reward -= 20.0  # 大惩罚
         elif self.step_count >= self.episode_len:
             truncated = True
+
         info = {
-            "vx": vx,
-            "yaw": yaw,
-            "base_z": base_z,
-            # reward components for diagnostics
-            "r_alive": r_alive,
-            "r_forward": r_forward,
-            "r_straight": r_straight,
-            "r_stability": r_stability,
-            "r_smooth": r_smooth,
+            "vx": vx, "dx": dx, "vy": vy, "yaw": yaw, "base_z": base_z,
+            "r_alive": r_alive, "r_forward": r_forward,
+            "r_distance": r_distance, "r_height": r_height,
+            "r_stability": r_stability, "r_smooth": r_smooth,
+            "r_side_penalty": r_side_penalty, "r_heading": r_heading,
+            "r_gait": r_gait
         }
         return reward, terminated, truncated, info
 
@@ -215,20 +251,16 @@ class BipedEnv(gym.Env):
         obs = self._get_obs()
         return obs, {}
 
-
     def step(self, action):
         self.step_count += 1
         self._apply_action(action)
-
         for _ in range(4):
             p.stepSimulation()
             if self.render_gui:
                 time.sleep(self.sim_timestep)
-
         obs = self._get_obs()
         reward, terminated, truncated, info = self._compute_reward_done(obs, action)
         return obs, reward, terminated, truncated, info
-
 
     def render(self): return None
     def close(self): p.disconnect()

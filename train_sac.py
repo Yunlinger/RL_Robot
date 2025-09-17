@@ -23,12 +23,12 @@ if __name__ == "__main__":
     model = SAC(
         "MlpPolicy",
         venv,
-        device="auto",  # 使用 auto，避免某些 mps 数值不稳定
+        device="mps",  # 使用 auto，避免某些 mps 数值不稳定
         verbose=1,
         tensorboard_log="logs/",
         learning_starts=5000,
         batch_size=256,
-        buffer_size=500_000,
+        buffer_size=100_000,
         ent_coef="auto",  # 自动温度
         gamma=0.99,
         tau=0.005,
