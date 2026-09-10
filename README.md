@@ -165,20 +165,5 @@ python -m unittest discover -s tests -v
 
 本版本在 macOS 上已通过 9 项自动检查，包括 Gymnasium/SB3 环境契约、随机种子、独立物理客户端、舵机限幅、跌倒与超时区分、随机化 reset、渲染、模型保存/恢复和 replay buffer 续训。零残差参考步态可在仿真中连续运行 12 秒，约前进 0.28 m 且不摔倒。SAC 短训练可以正常更新网络并恢复 bundle；正式步态需要按训练曲线和 `evaluation.json` 判断。
 
-## Git
 
-本地提交：
 
-```bash
-git status
-git diff --check
-git add README.md biped.urdf envs robot_config.py scripts tests training.py train_sac.py test.py requirements.txt .gitignore docs
-git commit -m "Rebuild biped training pipeline for ten SG90 servos"
-git log --oneline -1
-```
-
-`runs/`、`models/`、`logs/` 和 Python 缓存已加入 `.gitignore`。提交只更新本地 Git；确认无误后再执行：
-
-```bash
-git push origin main
-```
