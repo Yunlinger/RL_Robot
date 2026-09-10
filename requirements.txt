@@ -1,0 +1,6 @@
+# Python 3.10-3.12 recommended on macOS; PyBullet may build from source.
+gymnasium>=0.29.1,<2
+numpy>=1.26,<3
+pybullet==3.2.7
+stable-baselines3>=2.4,<3
+torch>=2.2,<3

@@ -1,136 +1,325 @@
-<?xml version="1.0" ?>
-<robot name="biped">
-
-  <!-- 躯干 -->
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="sg90_biped_10dof">
   <link name="torso">
     <inertial>
       <origin xyz="0 0 0" />
-      <mass value="0.25"/>
-      <inertia ixx="0.002" iyy="0.002" izz="0.002" ixy="0" ixz="0" iyz="0"/>
+      <mass value="0.1" />
+      <inertia ixx="6.604166666666668e-05" iyy="4.208333333333334e-05" izz="5.770833333333334e-05" ixy="0" ixz="0" iyz="0" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><box size="0.2 0.1 0.3"/></geometry>
-      <material name="blue"><color rgba="0.2 0.2 0.8 1"/></material>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <box size="0.045 0.07 0.055" />
+      </geometry>
+      <material name="torso_colour">
+        <color rgba="0.2 0.5 0.8 1" />
+      </material>
     </visual>
-    <collision><geometry><box size="0.2 0.1 0.3"/></geometry></collision>
+    <collision>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <box size="0.045 0.07 0.055" />
+      </geometry>
+    </collision>
   </link>
-
-  <!-- 左腿大腿 -->
+  <link name="left_hip">
+    <inertial>
+      <origin xyz="0 0 -0.009" />
+      <mass value="0.012" />
+      <inertia ixx="5.2e-07" iyy="8.53e-07" izz="7.249999999999999e-07" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.009" />
+      <geometry>
+        <box size="0.023 0.014 0.018" />
+      </geometry>
+      <material name="left_hip_colour">
+        <color rgba="0.2 0.5 0.8 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.009" />
+      <geometry>
+        <box size="0.023 0.014 0.018" />
+      </geometry>
+    </collision>
+  </link>
   <link name="left_thigh">
     <inertial>
-      <origin xyz="0 0 -0.075"/>
-      <mass value="0.12"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      <origin xyz="0 0 -0.0275" />
+      <mass value="0.02" />
+      <inertia ixx="5.848333333333333e-06" iyy="5.468333333333333e-06" izz="1.2333333333333333e-06" ixy="0" ixz="0" iyz="0" />
     </inertial>
-    <visual><geometry><box size="0.05 0.05 0.15"/></geometry>
-      <material name="red"><color rgba="0.8 0.2 0.2 1"/></material></visual>
-    <collision><geometry><box size="0.05 0.05 0.15"/></geometry></collision>
+    <visual>
+      <origin xyz="0 0 -0.0275" />
+      <geometry>
+        <box size="0.016 0.022 0.055" />
+      </geometry>
+      <material name="left_thigh_colour">
+        <color rgba="0.85 0.3 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.0275" />
+      <geometry>
+        <box size="0.016 0.022 0.055" />
+      </geometry>
+    </collision>
   </link>
-
-  <!-- 左腿小腿 -->
   <link name="left_shin">
     <inertial>
-      <origin xyz="0 0 -0.075"/>
-      <mass value="0.10"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      <origin xyz="0 0 -0.0275" />
+      <mass value="0.018" />
+      <inertia ixx="5.023499999999999e-06" iyy="4.831499999999999e-06" izz="7.799999999999998e-07" ixy="0" ixz="0" iyz="0" />
     </inertial>
-    <visual><geometry><box size="0.04 0.04 0.15"/></geometry>
-      <material name="green"><color rgba="0.2 0.8 0.2 1"/></material></visual>
-    <collision><geometry><box size="0.04 0.04 0.15"/></geometry></collision>
+    <visual>
+      <origin xyz="0 0 -0.0275" />
+      <geometry>
+        <box size="0.014 0.018 0.055" />
+      </geometry>
+      <material name="left_shin_colour">
+        <color rgba="0.2 0.7 0.5 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.0275" />
+      <geometry>
+        <box size="0.014 0.018 0.055" />
+      </geometry>
+    </collision>
   </link>
-
-  <!-- 左脚 -->
+  <link name="left_ankle">
+    <inertial>
+      <origin xyz="0 0 0" />
+      <mass value="0.01" />
+      <inertia ixx="5.399999999999999e-07" iyy="6.733333333333333e-07" izz="6.733333333333333e-07" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <box size="0.022 0.018 0.018" />
+      </geometry>
+      <material name="left_ankle_colour">
+        <color rgba="0.2 0.5 0.8 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <box size="0.022 0.018 0.018" />
+      </geometry>
+    </collision>
+  </link>
   <link name="left_foot">
     <inertial>
-      <origin xyz="0 0 0"/>
-      <mass value="0.08"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      <origin xyz="0.005 0 -0.012" />
+      <mass value="0.015" />
+      <inertia ixx="2.045e-06" iyy="4.545e-06" izz="6.5e-06" ixy="0" ixz="0" iyz="0" />
     </inertial>
-    <visual><geometry><box size="0.1 0.06 0.04"/></geometry>
-      <material name="yellow"><color rgba="0.9 0.9 0.2 1"/></material></visual>
-    <collision><geometry><box size="0.1 0.06 0.04"/></geometry></collision>
+    <visual>
+      <origin xyz="0.005 0 -0.012" />
+      <geometry>
+        <box size="0.06 0.04 0.006" />
+      </geometry>
+      <material name="left_foot_colour">
+        <color rgba="0.9 0.7 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.005 0 -0.012" />
+      <geometry>
+        <box size="0.06 0.04 0.006" />
+      </geometry>
+    </collision>
   </link>
-
-  <!-- 右腿大腿 -->
+  <joint name="left_hip_roll" type="revolute">
+    <parent link="torso" />
+    <child link="left_hip" />
+    <origin xyz="0 0.03 -0.0275" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.45" upper="0.45" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
+  </joint>
+  <joint name="left_hip_pitch" type="revolute">
+    <parent link="left_hip" />
+    <child link="left_thigh" />
+    <origin xyz="0 0 -0.009" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.85" upper="0.65" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
+  </joint>
+  <joint name="left_knee" type="revolute">
+    <parent link="left_thigh" />
+    <child link="left_shin" />
+    <origin xyz="0 0 -0.055" />
+    <axis xyz="0 1 0" />
+    <limit lower="0.02" upper="1.5" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
+  </joint>
+  <joint name="left_ankle_pitch" type="revolute">
+    <parent link="left_shin" />
+    <child link="left_ankle" />
+    <origin xyz="0 0 -0.055" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.95" upper="0.65" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
+  </joint>
+  <joint name="left_ankle_roll" type="revolute">
+    <parent link="left_ankle" />
+    <child link="left_foot" />
+    <origin xyz="0 0 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.45" upper="0.45" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
+  </joint>
+  <link name="right_hip">
+    <inertial>
+      <origin xyz="0 0 -0.009" />
+      <mass value="0.012" />
+      <inertia ixx="5.2e-07" iyy="8.53e-07" izz="7.249999999999999e-07" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.009" />
+      <geometry>
+        <box size="0.023 0.014 0.018" />
+      </geometry>
+      <material name="right_hip_colour">
+        <color rgba="0.2 0.5 0.8 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.009" />
+      <geometry>
+        <box size="0.023 0.014 0.018" />
+      </geometry>
+    </collision>
+  </link>
   <link name="right_thigh">
     <inertial>
-      <origin xyz="0 0 -0.075"/>
-      <mass value="0.12"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      <origin xyz="0 0 -0.0275" />
+      <mass value="0.02" />
+      <inertia ixx="5.848333333333333e-06" iyy="5.468333333333333e-06" izz="1.2333333333333333e-06" ixy="0" ixz="0" iyz="0" />
     </inertial>
-    <visual><geometry><box size="0.05 0.05 0.15"/></geometry>
-      <material name="red"><color rgba="0.8 0.2 0.2 1"/></material></visual>
-    <collision><geometry><box size="0.05 0.05 0.15"/></geometry></collision>
+    <visual>
+      <origin xyz="0 0 -0.0275" />
+      <geometry>
+        <box size="0.016 0.022 0.055" />
+      </geometry>
+      <material name="right_thigh_colour">
+        <color rgba="0.85 0.3 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.0275" />
+      <geometry>
+        <box size="0.016 0.022 0.055" />
+      </geometry>
+    </collision>
   </link>
-
-  <!-- 右腿小腿 -->
   <link name="right_shin">
     <inertial>
-      <origin xyz="0 0 -0.075"/>
-      <mass value="0.10"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      <origin xyz="0 0 -0.0275" />
+      <mass value="0.018" />
+      <inertia ixx="5.023499999999999e-06" iyy="4.831499999999999e-06" izz="7.799999999999998e-07" ixy="0" ixz="0" iyz="0" />
     </inertial>
-    <visual><geometry><box size="0.04 0.04 0.15"/></geometry>
-      <material name="green"><color rgba="0.2 0.8 0.2 1"/></material></visual>
-    <collision><geometry><box size="0.04 0.04 0.15"/></geometry></collision>
+    <visual>
+      <origin xyz="0 0 -0.0275" />
+      <geometry>
+        <box size="0.014 0.018 0.055" />
+      </geometry>
+      <material name="right_shin_colour">
+        <color rgba="0.2 0.7 0.5 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.0275" />
+      <geometry>
+        <box size="0.014 0.018 0.055" />
+      </geometry>
+    </collision>
   </link>
-
-  <!-- 右脚 -->
+  <link name="right_ankle">
+    <inertial>
+      <origin xyz="0 0 0" />
+      <mass value="0.01" />
+      <inertia ixx="5.399999999999999e-07" iyy="6.733333333333333e-07" izz="6.733333333333333e-07" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <box size="0.022 0.018 0.018" />
+      </geometry>
+      <material name="right_ankle_colour">
+        <color rgba="0.2 0.5 0.8 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <box size="0.022 0.018 0.018" />
+      </geometry>
+    </collision>
+  </link>
   <link name="right_foot">
     <inertial>
-      <origin xyz="0 0 0"/>
-      <mass value="0.08"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      <origin xyz="0.005 0 -0.012" />
+      <mass value="0.015" />
+      <inertia ixx="2.045e-06" iyy="4.545e-06" izz="6.5e-06" ixy="0" ixz="0" iyz="0" />
     </inertial>
-    <visual><geometry><box size="0.1 0.06 0.04"/></geometry>
-      <material name="yellow"><color rgba="0.9 0.9 0.2 1"/></material></visual>
-    <collision><geometry><box size="0.1 0.06 0.04"/></geometry></collision>
+    <visual>
+      <origin xyz="0.005 0 -0.012" />
+      <geometry>
+        <box size="0.06 0.04 0.006" />
+      </geometry>
+      <material name="right_foot_colour">
+        <color rgba="0.9 0.7 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.005 0 -0.012" />
+      <geometry>
+        <box size="0.06 0.04 0.006" />
+      </geometry>
+    </collision>
   </link>
-
-  <!-- 关节 -->
-  <joint name="left_hip" type="revolute">
-    <parent link="torso"/>
-    <child link="left_thigh"/>
-    <origin xyz="0 0.1 -0.1" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="1.0" velocity="10.0" lower="-1.57" upper="1.57"/>
+  <joint name="right_hip_roll" type="revolute">
+    <parent link="torso" />
+    <child link="right_hip" />
+    <origin xyz="0 -0.03 -0.0275" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.45" upper="0.45" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
   </joint>
-
-  <joint name="left_knee" type="revolute">
-    <parent link="left_thigh"/>
-    <child link="left_shin"/>
-    <origin xyz="0 0 -0.15" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="1.0" velocity="10.0" lower="0" upper="1.57"/>
+  <joint name="right_hip_pitch" type="revolute">
+    <parent link="right_hip" />
+    <child link="right_thigh" />
+    <origin xyz="0 0 -0.009" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.85" upper="0.65" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
   </joint>
-
-  <joint name="left_ankle" type="fixed">
-    <parent link="left_shin"/>
-    <child link="left_foot"/>
-    <origin xyz="0 0 -0.15" rpy="0 0 0"/>
-  </joint>
-
-  <joint name="right_hip" type="revolute">
-    <parent link="torso"/>
-    <child link="right_thigh"/>
-    <origin xyz="0 -0.1 -0.1" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="1.0" velocity="10.0" lower="-1.57" upper="1.57"/>
-  </joint>
-
   <joint name="right_knee" type="revolute">
-    <parent link="right_thigh"/>
-    <child link="right_shin"/>
-    <origin xyz="0 0 -0.15" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="1.0" velocity="10.0" lower="0" upper="1.57"/>
+    <parent link="right_thigh" />
+    <child link="right_shin" />
+    <origin xyz="0 0 -0.055" />
+    <axis xyz="0 1 0" />
+    <limit lower="0.02" upper="1.5" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
   </joint>
-
-  <joint name="right_ankle" type="fixed">
-    <parent link="right_shin"/>
-    <child link="right_foot"/>
-    <origin xyz="0 0 -0.15" rpy="0 0 0"/>
+  <joint name="right_ankle_pitch" type="revolute">
+    <parent link="right_shin" />
+    <child link="right_ankle" />
+    <origin xyz="0 0 -0.055" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.95" upper="0.65" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
   </joint>
-
+  <joint name="right_ankle_roll" type="revolute">
+    <parent link="right_ankle" />
+    <child link="right_foot" />
+    <origin xyz="0 0 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.45" upper="0.45" effort="0.08" velocity="6.0" />
+    <dynamics damping="0.0001" friction="0.0002" />
+  </joint>
 </robot>
