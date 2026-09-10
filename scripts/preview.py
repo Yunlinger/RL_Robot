@@ -48,7 +48,10 @@ def main():
                 finished = terminated or truncated
             if finished:
                 break
-        print({key: info[key] for key in ('elapsed_seconds', 'x_distance', 'y_distance', 'is_fallen', 'touchdowns')})
+        print({key: info[key] for key in (
+            'elapsed_seconds', 'x_distance', 'y_distance', 'max_abs_lateral_m',
+            'max_abs_heading_rad', 'path_efficiency', 'is_fallen', 'touchdowns'
+        ) if key in info})
         if args.gif:
             args.gif.parent.mkdir(parents=True, exist_ok=True)
             frames[0].save(args.gif, save_all=True, append_images=frames[1:], duration=100, loop=0)

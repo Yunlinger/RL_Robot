@@ -46,6 +46,16 @@ class EnvironmentTests(unittest.TestCase):
             self.assertTrue(np.all(env.target_q <= env.high))
             self.assertTrue(np.all(np.abs(env.last_torque) <= env.force_limits + 1e-9))
 
+    def test_bno085_heading_feedback(self):
+        with BipedEnv(task='stand', imu_model='bno085', seed=42) as env:
+            position = env._state()['position']
+            env._p.resetBasePositionAndOrientation(
+                env.robot_id, position, env._p.getQuaternionFromEuler([0, 0, 0.5]))
+            obs = env._get_obs()
+            measured_heading = np.arctan2(obs[6], obs[7])
+            self.assertAlmostEqual(measured_heading, 0.5 + env.imu_heading_bias, delta=0.02)
+            self.assertEqual(obs.shape, (31,))
+
     def test_reference_supports_weight_for_full_episode(self):
         with BipedEnv(task='stand') as env:
             for _ in range(env.episode_len):
@@ -57,6 +67,17 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(info['foot_contacts'], [1.0, 1.0])
             with self.assertRaises(RuntimeError):
                 env.step(np.zeros(10))
+
+    def test_reference_walk_has_bounded_heading_and_lateral_drift(self):
+        with BipedEnv(task='walk', imu_model='bno085') as env:
+            for _ in range(env.episode_len):
+                _, _, terminated, truncated, info = env.step(np.zeros(10))
+                if terminated or truncated:
+                    break
+            self.assertFalse(terminated)
+            self.assertLessEqual(info['max_abs_lateral_m'], 0.10)
+            self.assertLessEqual(info['max_abs_heading_rad'], np.deg2rad(25))
+            self.assertGreaterEqual(info['path_efficiency'], 0.80)
 
     def test_fall_separate_from_timeout(self):
         with BipedEnv(task='stand', episode_len=1) as env:

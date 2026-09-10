@@ -11,7 +11,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from envs.biped_env import BipedEnv
 from robot_config import ROOT
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def simulator_fingerprint():
@@ -22,7 +22,7 @@ def simulator_fingerprint():
 
 def make_vec_env(config, *, training, render_mode=None):
     kwargs = {key: config[key] for key in
-              ("episode_len", "target_speed", "task", "domain_randomization")}
+              ("episode_len", "target_speed", "task", "domain_randomization", "imu_model")}
     if not training:
         kwargs["domain_randomization"] = False
     env = DummyVecEnv([lambda: Monitor(BipedEnv(**kwargs, render_mode=render_mode))])
@@ -92,14 +92,23 @@ def evaluate(model, env, *, episodes=5, seed=10000, frame_callback=None):
                 distance = info["x_distance"]
                 avg_speed = distance / duration
                 walking = bool(not info["is_fallen"] and avg_speed >= 0.015
-                               and abs(info["y_distance"]) <= 0.10
+                               and info["max_abs_lateral_m"] <= 0.10
+                               and info["max_abs_heading_rad"] <= np.deg2rad(25)
+                               and info["path_efficiency"] >= 0.80
                                and min(info["touchdowns"]) >= 3)
                 results.append({"return": total, "duration_s": duration, "distance_m": distance,
                                 "mean_speed_m_s": avg_speed, "lateral_distance_m": info["y_distance"],
+                                "max_abs_lateral_m": info["max_abs_lateral_m"],
+                                "final_heading_deg": float(np.rad2deg(info["heading_error_rad"])),
+                                "max_abs_heading_deg": float(np.rad2deg(info["max_abs_heading_rad"])),
+                                "path_efficiency": info["path_efficiency"],
                                 "fallen": info["is_fallen"], "touchdowns": info["touchdowns"],
                                 "walking_success": walking})
                 break
     return {"episodes": results, "mean_return": float(np.mean([r["return"] for r in results])),
             "mean_distance_m": float(np.mean([r["distance_m"] for r in results])),
+            "mean_max_abs_lateral_m": float(np.mean([r["max_abs_lateral_m"] for r in results])),
+            "mean_max_abs_heading_deg": float(np.mean([r["max_abs_heading_deg"] for r in results])),
+            "mean_path_efficiency": float(np.mean([r["path_efficiency"] for r in results])),
             "fall_rate": float(np.mean([r["fallen"] for r in results])),
             "walking_success_rate": float(np.mean([r["walking_success"] for r in results]))}

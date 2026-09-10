@@ -29,7 +29,7 @@ class EvaluationCallback(BaseCallback):
         self.frequency, self.episodes = frequency, episodes
         self.save_replay = save_replay
         self.eval_env = make_vec_env(config, training=False)
-        self.best_return = float("-inf")
+        self.best_quality = None
 
     def _on_step(self):
         if self.n_calls % self.frequency:
@@ -39,14 +39,21 @@ class EvaluationCallback(BaseCallback):
         metrics["timesteps"] = self.num_timesteps
         with (self.run_dir / "evaluations.jsonl").open("a") as stream:
             stream.write(json.dumps(metrics) + "\n")
-        for key in ("mean_return", "mean_distance_m", "fall_rate", "walking_success_rate"):
+        for key in ("mean_return", "mean_distance_m", "mean_max_abs_lateral_m",
+                    "mean_max_abs_heading_deg", "mean_path_efficiency", "fall_rate",
+                    "walking_success_rate"):
             self.logger.record("eval/" + key, metrics[key])
         name = f"step_{self.num_timesteps:09d}"
         save_bundle(self.run_dir / name, self.model, self.training_env, self.config, replay=self.save_replay)
-        if metrics["mean_return"] > self.best_return:
-            self.best_return = metrics["mean_return"]
+        quality = (metrics["walking_success_rate"], -metrics["fall_rate"],
+                   metrics["mean_path_efficiency"], -metrics["mean_max_abs_lateral_m"],
+                   -metrics["mean_max_abs_heading_deg"], metrics["mean_return"])
+        if self.best_quality is None or quality > self.best_quality:
+            self.best_quality = quality
             (self.run_dir / "best.json").write_text(json.dumps({"bundle": name, **metrics}, indent=2) + "\n")
         print(f"Evaluation {self.num_timesteps}: distance={metrics['mean_distance_m']:.3f} m, "
+              f"max_lateral={metrics['mean_max_abs_lateral_m']:.3f} m, "
+              f"max_heading={metrics['mean_max_abs_heading_deg']:.1f} deg, "
               f"fall={metrics['fall_rate']:.0%}, walking={metrics['walking_success_rate']:.0%}", flush=True)
         return True
 
@@ -64,6 +71,7 @@ def parse_args():
     parser.add_argument("--target-speed", type=float, default=0.04)
     parser.add_argument("--episode-len", type=int, default=600)
     parser.add_argument("--randomize", action="store_true", help="Vary mass/friction/servo strength/latency/IMU noise")
+    parser.add_argument("--imu", choices=("bno085", "mpu6050"), default="bno085")
     parser.add_argument("--run-dir", type=Path)
     parser.add_argument("--resume", type=Path, help="Bundle directory with replay buffer; preserves saved task/config")
     parser.add_argument("--eval-freq", type=int, default=10_000)
@@ -87,7 +95,7 @@ def main():
     run_dir = (args.run_dir or ROOT / "runs" / datetime.now().strftime("sac_%Y%m%d_%H%M%S_%f")).expanduser().resolve()
     run_dir.mkdir(parents=True, exist_ok=False)
     config = {"episode_len": args.episode_len, "target_speed": args.target_speed, "task": args.task,
-              "domain_randomization": args.randomize, "seed": args.seed}
+              "domain_randomization": args.randomize, "imu_model": args.imu, "seed": args.seed}
     if args.resume:
         model, env, config = load_bundle(args.resume, training=True, device=device)
         print("Resuming saved task and parameters:", config)

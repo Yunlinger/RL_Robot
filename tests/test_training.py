@@ -12,7 +12,8 @@ from training import evaluate, load_bundle, make_vec_env, save_bundle
 class TrainingTests(unittest.TestCase):
     def test_gradient_updates_bundle_roundtrip_and_resume(self):
         torch.set_num_threads(1)
-        config = dict(episode_len=20, target_speed=0.04, task='walk', domain_randomization=False, seed=7)
+        config = dict(episode_len=20, target_speed=0.04, task='walk',
+                      domain_randomization=False, imu_model='bno085', seed=7)
         env = make_vec_env(config, training=True)
         loaded_env = None
         try:

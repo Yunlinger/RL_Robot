@@ -1,8 +1,9 @@
 """Gymnasium environment for the 250 g, ten-servo reference biped.
 
-Physics is isolated per client. The actor sees IMU-like signals, the clock and
-command history (SG90 does not supply measured joint position). Simulator-only
-velocities, contacts and joint states are used for rewards and diagnostics.
+Physics is isolated per client. The actor sees simulated IMU signals, the clock
+and command history (SG90 does not supply measured joint position). The BNO085
+model has an absolute heading reference; the MPU6050 model integrates yaw rate
+and therefore drifts. Simulator-only states are used for rewards/diagnostics.
 """
 from pathlib import Path
 import time
@@ -23,7 +24,8 @@ class BipedEnv(gym.Env):
     JOINT_NAMES = JOINT_NAMES
 
     def __init__(self, urdf_path=None, render_mode=None, render=False, seed=None,
-                 episode_len=600, target_speed=0.04, task="walk", domain_randomization=False):
+                 episode_len=600, target_speed=0.04, task="walk", domain_randomization=False,
+                 imu_model="bno085"):
         super().__init__()
         if render:
             render_mode = "human"
@@ -31,6 +33,8 @@ class BipedEnv(gym.Env):
             raise ValueError(f"Unsupported render mode: {render_mode}")
         if task not in ("stand", "walk"):
             raise ValueError("task must be stand or walk")
+        if imu_model not in ("bno085", "mpu6050"):
+            raise ValueError("imu_model must be bno085 or mpu6050")
         if not isinstance(episode_len, int) or episode_len <= 0:
             raise ValueError("episode_len must be a positive integer")
         if not np.isfinite(target_speed) or not 0 <= target_speed <= 0.08:
@@ -43,12 +47,14 @@ class BipedEnv(gym.Env):
         self.target_speed = float(target_speed) if task == "walk" else 0.0
         self.task = task
         self.domain_randomization = bool(domain_randomization)
+        self.imu_model = imu_model
         self.dt = 1 / ROBOT.control_hz
         self.sim_dt = 1 / ROBOT.physics_hz
         self.frame_skip = ROBOT.physics_hz // ROBOT.control_hz
         self.action_space = spaces.Box(-1.0, 1.0, shape=(len(JOINT_NAMES),), dtype=np.float32)
-        # gravity(3), body gyro(3), phase sin/cos(2), speed(1), motor targets(10), last action(10)
-        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(29,), dtype=np.float32)
+        # gravity(3), gyro(3), heading sin/cos(2), phase(2), speed(1),
+        # motor targets(10), last action(10)
+        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(31,), dtype=np.float32)
         self._p = BulletClient(connection_mode=p.GUI if render_mode == "human" else p.DIRECT)
         self.cid = self._p._client
         self.closed = False
@@ -117,13 +123,31 @@ class BipedEnv(gym.Env):
     def _get_obs(self, state=None):
         state = self._state() if state is None else state
         gyro, gravity = state["gyro"].copy(), state["gravity"].copy()
-        if self.domain_randomization:
-            gyro += self.np_random.normal(0, 0.015, 3)
-            gravity += self.np_random.normal(0, 0.005, 3)
+        gyro += self.imu_gyro_bias + self.np_random.normal(0, self.imu_gyro_noise, 3)
+        gravity += self.np_random.normal(0, self.imu_accel_noise, 3)
+        true_yaw = p.getEulerFromQuaternion(state["orientation"])[2]
+        if self.imu_model == "bno085":
+            measured_yaw = self._wrap_angle(
+                true_yaw + self.imu_heading_bias
+                + self.np_random.normal(0, self.imu_heading_noise)
+            )
+        else:
+            yaw_delta = self._wrap_angle(true_yaw - self.previous_true_yaw)
+            self.integrated_yaw = self._wrap_angle(
+                self.integrated_yaw + yaw_delta + self.imu_yaw_drift_rate * self.dt
+                + self.np_random.normal(0, self.imu_heading_noise)
+            )
+            self.previous_true_yaw = true_yaw
+            measured_yaw = self.integrated_yaw
         phase = [np.sin(2 * np.pi * self.phase), np.cos(2 * np.pi * self.phase)]
         targets = 2 * (self.target_q - self.low) / (self.high - self.low) - 1
-        return np.concatenate((gravity, gyro, phase, [self.target_speed / 0.08],
+        heading = [np.sin(measured_yaw), np.cos(measured_yaw)]
+        return np.concatenate((gravity, gyro, heading, phase, [self.target_speed / 0.08],
                                targets, self.last_action)).astype(np.float32)
+
+    @staticmethod
+    def _wrap_angle(angle):
+        return float((angle + np.pi) % (2 * np.pi) - np.pi)
 
     def _servo_step(self):
         """Solver-based position servo with finite torque and target velocity.
@@ -166,6 +190,17 @@ class BipedEnv(gym.Env):
         self._p.setPhysicsEngineParameter(numSolverIterations=80, deterministicOverlappingPairs=1)
         self.plane_id = self._p.loadURDF("plane.urdf")
         self._load_robot()
+        noise_scale = 2.0 if self.domain_randomization else 1.0
+        self.imu_gyro_bias = self.np_random.normal(0, 0.002 * noise_scale, 3)
+        self.imu_gyro_noise = 0.002 * noise_scale
+        self.imu_accel_noise = 0.003 * noise_scale
+        self.imu_heading_bias = self.np_random.normal(0, np.deg2rad(1.5 * noise_scale))
+        self.imu_heading_noise = np.deg2rad(0.15 * noise_scale)
+        # A calibrated MPU6050 commonly retains some yaw-rate bias. BNO085 uses
+        # its absolute heading path above, so this value is unused for BNO085.
+        self.imu_yaw_drift_rate = self.np_random.normal(0, np.deg2rad(0.5 * noise_scale))
+        self.integrated_yaw = 0.0
+        self.previous_true_yaw = 0.0
         self.phase = 0.0
         stand, _ = gait_reference(0.0, 0.0, walking=False)
         self.target_q = stand.copy()
@@ -191,6 +226,11 @@ class BipedEnv(gym.Env):
         self.previous_contacts = feet
         self.air_time = np.zeros(2)
         self.maximum_clearance = np.zeros(2)
+        self.path_length = 0.0
+        self.path_sample_interval = max(1, round(ROBOT.gait_period / self.dt))
+        self.last_path_sample = state["position"][:2].copy()
+        self.max_abs_lateral = 0.0
+        self.max_abs_heading = 0.0
         self._needs_reset = False
         if self.render_mode == "human":
             self._p.resetDebugVisualizerCamera(0.45, 40, -20, [0, 0, 0.10])
@@ -233,6 +273,7 @@ class BipedEnv(gym.Env):
                 self.maximum_clearance[i] = 0.0
         self.previous_contacts = feet
         roll, pitch, yaw = p.getEulerFromQuaternion(state["orientation"])
+        heading_error = self._wrap_angle(yaw)
         height = float(state["position"][2])
         terminated = bool(body_contact or height < 0.65 * self.standing_height
                           or abs(roll) > 0.7 or abs(pitch) > 0.7)
@@ -240,6 +281,13 @@ class BipedEnv(gym.Env):
         # Fall detection uses raw state, never a clipped observation.
         vx, vy, vz = state["linear"]
         displacement = state["position"] - self.start_position
+        self.max_abs_lateral = max(self.max_abs_lateral, abs(float(displacement[1])))
+        self.max_abs_heading = max(self.max_abs_heading, abs(heading_error))
+        if (self.step_count % self.path_sample_interval == 0) or terminated or truncated:
+            self.path_length += float(np.linalg.norm(
+                state["position"][:2] - self.last_path_sample
+            ))
+            self.last_path_sample = state["position"][:2].copy()
         speed_score = np.exp(-((vx - self.target_speed) / 0.035)**2)
         contact_score = float(np.mean(feet * expected_contacts + (1 - feet) * (1 - expected_contacts)))
         smooth_cost = float(np.mean((action - self.last_action)**2))
@@ -250,7 +298,10 @@ class BipedEnv(gym.Env):
             "upright": 0.5 * float(-state["gravity"][2]),
             "contacts": 0.5 * contact_score,
             "pose": -0.15 * float(np.mean(((state["q"] - reference) / np.asarray(ACTION_SCALE))**2)),
-            "drift": -0.3 * float((vy / 0.08)**2 + (displacement[1] / 0.10)**2 + yaw*yaw),
+            "heading": -0.65 * float(min((heading_error / 0.35)**2, 4.0)),
+            "drift": -0.55 * float(
+                min((vy / 0.06)**2, 4.0) + min((displacement[1] / 0.08)**2, 4.0)
+            ),
             "bounce": -0.1 * float((vz / 0.1)**2 + height_cost),
             "energy": -0.03 * energy,
             "smooth": -0.1 * smooth_cost,
@@ -260,10 +311,16 @@ class BipedEnv(gym.Env):
             reward = min(reward, 0.0) - 10.0
         self.last_action = action.copy()
         self._needs_reset = terminated or truncated
+        planar_distance = float(np.linalg.norm(displacement[:2]))
         info = {
             "vx": float(vx), "base_z": height, "x_distance": float(displacement[0]),
             "y_distance": float(displacement[1]), "elapsed_seconds": self.step_count * self.dt,
             "foot_contacts": feet.tolist(), "touchdowns": self.foot_transitions.tolist(),
+            "heading_error_rad": heading_error,
+            "max_abs_heading_rad": self.max_abs_heading,
+            "max_abs_lateral_m": self.max_abs_lateral,
+            "path_length_m": self.path_length,
+            "path_efficiency": planar_distance / self.path_length if self.path_length > 0 else 0.0,
             "is_fallen": terminated, "reward_terms": components,
         }
         if self.render_mode == "human":
