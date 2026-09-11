@@ -72,20 +72,22 @@ python scripts/preview.py
 
 ```bash
 python train_sac.py \
-  --steps 20000 \
+  --steps 50000 \
   --eval-freq 5000 \
-  --eval-episodes 3 \
+  --eval-episodes 10 \
   --run-dir runs/smoke
 ```
 
-正式训练建议至少从 400,000 步开始：
+训练器默认使用稳定优先的设置：`2e-5` 学习率、1,000,000 条经验池、每收集 8 步只做 1 次梯度更新、较低的目标熵，以及连续三次评估达到 80% 步行成功率后早停。每次评估默认 10 个不同随机种子 episode，`best.json` 指向质量最好的 checkpoint，`final` 只表示最后一次更新，不一定最好。
+
+新建训练建议至少从 400,000 步开始：
 
 ```bash
 python train_sac.py \
   --steps 400000 \
   --imu bno085 \
   --eval-freq 10000 \
-  --eval-episodes 5 \
+  --eval-episodes 10 \
   --run-dir runs/walk_sg90
 ```
 
@@ -118,11 +120,24 @@ python train_sac.py \
   --run-dir runs/walk_sg90_resume
 ```
 
+如果已知某个中间 checkpoint 的动作最好，但它没有 `replay_buffer.pkl`，使用策略热启动。它会加载 actor/critic 和归一化统计量，重新建立一个更大的经验池，并先由已有策略采集 10,000 条正常步态经验，避免随机动作破坏已学会的步态：
+
+```bash
+python train_sac.py \
+  --init-model runs/walk_bno087/best.json \
+  --steps 400000 \
+  --eval-freq 10000 \
+  --eval-episodes 10 \
+  --run-dir runs/walk_stable_finetune
+```
+
+`runs/walk_bno087/best.json` 会自动解析到它记录的最佳 checkpoint。也可以直接填 `step_000440000` 这样的目录。不要从已经退化的 `walk_bno087/final` 继续训练。
+
 无 GUI 评估：
 
 ```bash
 python test.py \
-  --model runs/walk_sg90/final \
+  --model runs/walk_sg90/best.json \
   --episodes 10 \
   --output runs/walk_sg90/evaluation_10.json
 ```
@@ -130,7 +145,7 @@ python test.py \
 GUI 回放：
 
 ```bash
-python test.py --model runs/walk_sg90/final --episodes 1 --gui
+python test.py --model runs/walk_sg90/best.json --episodes 1 --gui
 ```
 
 加 `--require-walking` 可以让命令在没有任何成功步行 episode 时返回退出码 1。评估的 `walking_success` 同时检查未摔倒、平均速度、全程最大侧偏不超过 10 cm、全程最大航向误差不超过 25°、路径直线率不低于 80%，以及双脚抬脚/触地次数，不能只看 reward。
@@ -167,4 +182,3 @@ python -m unittest discover -s tests -v
 ## 验证结论
 
 本版本在 macOS 上已通过 11 项自动检查，包括 Gymnasium/SB3 环境契约、BNO085 航向反馈、随机种子、独立物理客户端、舵机限幅、跌倒与超时区分、随机化 reset、直线轨迹约束、渲染、模型保存/恢复和 replay buffer 续训。零残差参考步态可在仿真中连续运行 12 秒，约前进 0.28 m 且不摔倒。SAC 短训练可以正常更新网络并恢复 bundle；正式步态需要按训练曲线和 `evaluation.json` 判断。
-

@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 from stable_baselines3 import SAC
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.utils import FloatSchedule
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from envs.biped_env import BipedEnv
@@ -17,6 +18,18 @@ SCHEMA_VERSION = 4
 def simulator_fingerprint():
     paths = ("biped.urdf", "robot_config.py", "envs/biped_env.py", "envs/gait.py")
     return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in paths}
+
+
+def resolve_bundle_path(directory):
+    """Resolve a model bundle or the ``best.json`` selector in a run directory."""
+    path = Path(directory).expanduser().resolve()
+    selector = path if path.is_file() else path / "best.json"
+    if selector.is_file():
+        selected = json.loads(selector.read_text()).get("bundle")
+        if not isinstance(selected, str):
+            raise ValueError(f"Invalid best-model selector: {selector}")
+        path = selector.parent / selected
+    return path
 
 
 
@@ -44,7 +57,7 @@ def save_bundle(directory, model, env, config, *, replay=False):
 
 
 def load_config(directory):
-    directory = Path(directory).expanduser().resolve()
+    directory = resolve_bundle_path(directory)
     config = json.loads((directory / "config.json").read_text())
     if config.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("Incompatible model: retrain with the ten-servo environment")
@@ -54,7 +67,7 @@ def load_config(directory):
 
 
 def load_bundle(directory, *, training=False, device="cpu", render_mode=None):
-    directory = Path(directory).expanduser().resolve()
+    directory = resolve_bundle_path(directory)
     config = load_config(directory)
     base = make_vec_env(config, training=training, render_mode=render_mode)
     try:
@@ -72,6 +85,59 @@ def load_bundle(directory, *, training=False, device="cpu", render_mode=None):
     except Exception:
         base.close()
         raise
+
+
+def reset_replay_buffer(model, env, buffer_size):
+    """Give a loaded policy a new replay buffer for policy-only fine-tuning."""
+    model.buffer_size = int(buffer_size)
+    model.replay_buffer = model.replay_buffer_class(
+        model.buffer_size,
+        env.observation_space,
+        env.action_space,
+        device=model.device,
+        n_envs=env.num_envs,
+        optimize_memory_usage=model.optimize_memory_usage,
+        **model.replay_buffer_kwargs,
+    )
+
+
+def prefill_replay_with_policy(model, env, steps):
+    """Collect non-random transitions before a policy-only fine-tuning run.
+
+    SAC normally collects uniformly random actions during ``learning_starts``.
+    That is counterproductive when starting from a robot policy that can already
+    walk, so this routine stores stochastic actions from that policy instead.
+    """
+    if steps < model.batch_size:
+        raise ValueError("policy warm-up steps must be at least the batch size")
+    model.policy.set_training_mode(False)
+    model._last_obs = env.reset()
+    if model._vec_normalize_env is not None:
+        model._last_original_obs = model._vec_normalize_env.get_original_obs()
+    for _ in range(steps):
+        action, buffer_action = model._sample_action(0, model.action_noise, env.num_envs)
+        new_obs, rewards, dones, infos = env.step(action)
+        model._store_transition(model.replay_buffer, buffer_action, new_obs, rewards, dones, infos)
+    # ``learn(reset_num_timesteps=True)`` resets this counter and the observation.
+    model.num_timesteps = 0
+    model._episode_num = 0
+
+
+def configure_sac_optimization(model, *, learning_rate, batch_size, train_freq,
+                               gradient_steps, target_entropy, learning_starts):
+    """Apply stable fine-tuning settings to a new or loaded SAC model."""
+    model.learning_rate = float(learning_rate)
+    model.lr_schedule = FloatSchedule(float(learning_rate))
+    model.batch_size = int(batch_size)
+    model.learning_starts = int(learning_starts)
+    model.train_freq = model.train_freq.__class__(int(train_freq), model.train_freq.unit)
+    model.gradient_steps = int(gradient_steps)
+    model.target_entropy = float(target_entropy)
+    optimizers = (model.actor.optimizer, model.critic.optimizer, model.ent_coef_optimizer)
+    for optimizer in optimizers:
+        if optimizer is not None:
+            for group in optimizer.param_groups:
+                group["lr"] = float(learning_rate)
 
 
 def evaluate(model, env, *, episodes=5, seed=10000, frame_callback=None):

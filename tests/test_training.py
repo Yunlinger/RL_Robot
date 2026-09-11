@@ -6,7 +6,8 @@ import numpy as np
 import torch
 from stable_baselines3 import SAC
 
-from training import evaluate, load_bundle, make_vec_env, save_bundle
+from training import (configure_sac_optimization, evaluate, load_bundle, make_vec_env,
+                      prefill_replay_with_policy, reset_replay_buffer, save_bundle)
 
 
 class TrainingTests(unittest.TestCase):
@@ -29,6 +30,8 @@ class TrainingTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temp:
                 bundle = Path(temp) / 'bundle'
                 save_bundle(bundle, model, env, config, replay=True)
+                selector = Path(temp) / 'best.json'
+                selector.write_text('{"bundle": "bundle"}\n')
                 loaded, loaded_env, _ = load_bundle(bundle, training=True)
                 loaded_env.training = False
                 loaded_env.seed(123)
@@ -45,6 +48,21 @@ class TrainingTests(unittest.TestCase):
                 loaded.learn(16, reset_num_timesteps=False)
                 self.assertEqual(loaded.num_timesteps, 64)
                 self.assertGreater(loaded._n_updates, updates)
+                selector_model, selector_env, _ = load_bundle(selector)
+                try:
+                    reset_replay_buffer(selector_model, selector_env, 256)
+                    prefill_replay_with_policy(selector_model, selector_env, 64)
+                    self.assertEqual(selector_model.replay_buffer.size(), 64)
+                    configure_sac_optimization(
+                        selector_model, learning_rate=1e-4, batch_size=32,
+                        train_freq=2, gradient_steps=1, target_entropy=-5,
+                        learning_starts=0,
+                    )
+                    self.assertEqual(selector_model.learning_starts, 0)
+                    self.assertEqual(selector_model.batch_size, 32)
+                    self.assertEqual(selector_model.train_freq.frequency, 2)
+                finally:
+                    selector_env.close()
         finally:
             env.close()
             if loaded_env is not None:
