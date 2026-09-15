@@ -66,6 +66,18 @@ python scripts/preview.py --gif /tmp/reference_gait_elegant.gif
 python scripts/preview.py
 ```
 
+录制带数据叠字的演示视频：
+
+```bash
+python scripts/record_video.py \
+  --model runs/walk_fast_start03/final \
+  --output media/microduck_compare/robotrl_walk_fast_start03.mp4 \
+  --steps 600 \
+  --seed 0
+```
+
+脚本会同时生成 MP4、指标 JSON 和封面图。中文口播稿与镜头表位于 `media/microduck_compare/`，其中 MicroDuck 画面需要使用你自己取得授权的公开素材。
+
 ## 训练
 
 先跑小实验确认环境：
