@@ -123,6 +123,22 @@ def prefill_replay_with_policy(model, env, steps):
     model._episode_num = 0
 
 
+def prefill_replay_with_reference(model, env, steps):
+    """Seed a new SAC replay buffer with the zero-residual reference gait."""
+    if steps < model.batch_size:
+        raise ValueError("reference warm-up steps must be at least the batch size")
+    model.policy.set_training_mode(False)
+    model._last_obs = env.reset()
+    if model._vec_normalize_env is not None:
+        model._last_original_obs = model._vec_normalize_env.get_original_obs()
+    action = np.zeros((env.num_envs, env.action_space.shape[0]), dtype=np.float32)
+    for _ in range(steps):
+        new_obs, rewards, dones, infos = env.step(action)
+        model._store_transition(model.replay_buffer, action, new_obs, rewards, dones, infos)
+    model.num_timesteps = 0
+    model._episode_num = 0
+
+
 def configure_sac_optimization(model, *, learning_rate, batch_size, train_freq,
                                gradient_steps, target_entropy, learning_starts):
     """Apply stable fine-tuning settings to a new or loaded SAC model."""
@@ -158,15 +174,19 @@ def evaluate(model, env, *, episodes=5, seed=10000, frame_callback=None):
                 distance = info["x_distance"]
                 avg_speed = distance / duration
                 walking = bool(not info["is_fallen"] and avg_speed >= 0.015
-                               and info["max_abs_lateral_m"] <= 0.10
-                               and info["max_abs_heading_rad"] <= np.deg2rad(25)
-                               and info["path_efficiency"] >= 0.80
+                                and info["max_abs_lateral_m"] <= 0.10
+                                and info["max_abs_heading_rad"] <= np.deg2rad(25)
+                               and info["max_abs_pitch_deg"] <= 15.0
+                               and info["max_abs_roll_deg"] <= 15.0
+                                and info["path_efficiency"] >= 0.80
                                and min(info["touchdowns"]) >= 3)
                 results.append({"return": total, "duration_s": duration, "distance_m": distance,
                                 "mean_speed_m_s": avg_speed, "lateral_distance_m": info["y_distance"],
                                 "max_abs_lateral_m": info["max_abs_lateral_m"],
                                 "final_heading_deg": float(np.rad2deg(info["heading_error_rad"])),
                                 "max_abs_heading_deg": float(np.rad2deg(info["max_abs_heading_rad"])),
+                                "max_abs_pitch_deg": info["max_abs_pitch_deg"],
+                                "max_abs_roll_deg": info["max_abs_roll_deg"],
                                 "path_efficiency": info["path_efficiency"],
                                 "fallen": info["is_fallen"], "touchdowns": info["touchdowns"],
                                 "walking_success": walking})
@@ -175,6 +195,8 @@ def evaluate(model, env, *, episodes=5, seed=10000, frame_callback=None):
             "mean_distance_m": float(np.mean([r["distance_m"] for r in results])),
             "mean_max_abs_lateral_m": float(np.mean([r["max_abs_lateral_m"] for r in results])),
             "mean_max_abs_heading_deg": float(np.mean([r["max_abs_heading_deg"] for r in results])),
+            "mean_max_abs_pitch_deg": float(np.mean([r["max_abs_pitch_deg"] for r in results])),
+            "mean_max_abs_roll_deg": float(np.mean([r["max_abs_roll_deg"] for r in results])),
             "mean_path_efficiency": float(np.mean([r["path_efficiency"] for r in results])),
             "fall_rate": float(np.mean([r["fallen"] for r in results])),
             "walking_success_rate": float(np.mean([r["walking_success"] for r in results]))}

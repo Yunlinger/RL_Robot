@@ -11,8 +11,9 @@ def gait_reference(phase, speed, *, walking=True):
     This is a kinematic starting point, not evidence of a stable walking policy.
     """
     angles, contacts = [], []
-    sway = 0.022 * np.cos(2 * np.pi * (phase - ROBOT.stance_fraction / 2)) if walking else 0.0
-    stride = speed * ROBOT.gait_period * ROBOT.stance_fraction if walking else 0.0
+    sway = ROBOT.lateral_sway * np.cos(2 * np.pi * (phase - ROBOT.stance_fraction / 2)) if walking else 0.0
+    stride = (speed * ROBOT.gait_period * ROBOT.stance_fraction * ROBOT.stride_gain
+              if walking else 0.0)
     for leg_phase in (phase % 1, (phase + 0.5) % 1):
         stance = leg_phase < ROBOT.stance_fraction or not walking
         if stance:

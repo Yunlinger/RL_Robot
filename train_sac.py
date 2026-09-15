@@ -13,7 +13,8 @@ from stable_baselines3.common.vec_env import sync_envs_normalization
 from envs.biped_env import BipedEnv
 from robot_config import ROOT
 from training import (configure_sac_optimization, evaluate, load_bundle, make_vec_env,
-                      prefill_replay_with_policy, reset_replay_buffer, save_bundle)
+                      prefill_replay_with_policy, prefill_replay_with_reference,
+                      reset_replay_buffer, save_bundle)
 
 
 def choose_device(requested):
@@ -45,14 +46,17 @@ class EvaluationCallback(BaseCallback):
         with (self.run_dir / "evaluations.jsonl").open("a") as stream:
             stream.write(json.dumps(metrics) + "\n")
         for key in ("mean_return", "mean_distance_m", "mean_max_abs_lateral_m",
-                    "mean_max_abs_heading_deg", "mean_path_efficiency", "fall_rate",
+                    "mean_max_abs_heading_deg", "mean_max_abs_pitch_deg", "mean_max_abs_roll_deg",
+                    "mean_path_efficiency", "fall_rate",
                     "walking_success_rate"):
             self.logger.record("eval/" + key, metrics[key])
         name = f"step_{self.num_timesteps:09d}"
         save_bundle(self.run_dir / name, self.model, self.training_env, self.config, replay=self.save_replay)
         quality = (metrics["walking_success_rate"], -metrics["fall_rate"],
                    metrics["mean_path_efficiency"], -metrics["mean_max_abs_lateral_m"],
-                   -metrics["mean_max_abs_heading_deg"], metrics["mean_return"])
+                   -metrics["mean_max_abs_heading_deg"],
+                   -metrics["mean_max_abs_pitch_deg"], -metrics["mean_max_abs_roll_deg"],
+                   metrics["mean_return"])
         if self.best_quality is None or quality > self.best_quality:
             self.best_quality = quality
             (self.run_dir / "best.json").write_text(json.dumps({"bundle": name, **metrics}, indent=2) + "\n")
@@ -81,7 +85,8 @@ def parse_args():
     parser.add_argument("--device", choices=("auto", "cpu", "mps"), default="cpu")
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--task", choices=("stand", "walk"), default="walk")
-    parser.add_argument("--target-speed", type=float, default=0.04)
+    parser.add_argument("--target-speed", type=float, default=0.04,
+                        help="Desired forward speed in m/s; use the proven reference-gait default")
     parser.add_argument("--episode-len", type=int, default=600)
     parser.add_argument("--randomize", action="store_true", help="Vary mass/friction/servo strength/latency/IMU noise")
     parser.add_argument("--imu", choices=("bno085", "mpu6050"), default="bno085")
@@ -91,7 +96,8 @@ def parse_args():
                         help="Start a new fine-tuning run from a checkpoint or best.json; replay is rebuilt")
     parser.add_argument("--eval-freq", type=int, default=10_000)
     parser.add_argument("--eval-episodes", type=int, default=10)
-    parser.add_argument("--learning-starts", type=int, default=5_000)
+    parser.add_argument("--learning-starts", type=int, default=0,
+                        help="Start learning immediately from reference-gait transitions")
     parser.add_argument("--learning-rate", type=float, default=2e-5,
                         help="Small default prevents a stable gait from drifting during fine-tuning")
     parser.add_argument("--buffer-size", type=int, default=1_000_000)
@@ -99,9 +105,12 @@ def parse_args():
     parser.add_argument("--train-freq", type=int, default=8,
                         help="Collect this many steps for each gradient update")
     parser.add_argument("--gradient-steps", type=int, default=1)
-    parser.add_argument("--target-entropy", type=float, default=-5.0)
+    parser.add_argument("--target-entropy", type=float, default=-8.0,
+                        help="Low exploration entropy preserves the reference gait")
     parser.add_argument("--policy-warmup-steps", type=int, default=10_000,
                         help="Policy-generated transitions before --init-model learns")
+    parser.add_argument("--reference-warmup-steps", type=int, default=10_000,
+                        help="Zero-residual reference transitions before a new policy learns")
     parser.add_argument("--early-stop-rate", type=float, default=0.8,
                         help="Stop after sustained walking success; set 0 to disable")
     parser.add_argument("--early-stop-patience", type=int, default=3)
@@ -118,6 +127,8 @@ def parse_args():
         parser.error("--learning-rate must be positive")
     if args.policy_warmup_steps < args.batch_size:
         parser.error("--policy-warmup-steps must be at least --batch-size")
+    if args.reference_warmup_steps < args.batch_size:
+        parser.error("--reference-warmup-steps must be at least --batch-size")
     if not 0 <= args.early_stop_rate <= 1:
         parser.error("--early-stop-rate must be between 0 and 1")
     if args.resume and args.init_model:
@@ -153,7 +164,7 @@ def main():
         model = SAC("MlpPolicy", env, device=device, verbose=0, seed=args.seed,
                     policy_kwargs={"net_arch": [128, 128]}, learning_starts=args.learning_starts,
                     batch_size=args.batch_size, buffer_size=args.buffer_size,
-                    learning_rate=args.learning_rate, ent_coef="auto_0.01",
+                    learning_rate=args.learning_rate, ent_coef="auto_0.0001",
                     target_entropy=args.target_entropy, train_freq=args.train_freq,
                     gradient_steps=args.gradient_steps, gamma=0.99, tau=0.005,
                     tensorboard_log=str(run_dir / "tensorboard") if args.tensorboard else None)
@@ -161,7 +172,9 @@ def main():
         torch.nn.init.zeros_(model.actor.mu.weight)
         torch.nn.init.zeros_(model.actor.mu.bias)
         torch.nn.init.zeros_(model.actor.log_std.weight)
-        torch.nn.init.constant_(model.actor.log_std.bias, -2.0)
+        torch.nn.init.constant_(model.actor.log_std.bias, -3.0)
+        prefill_replay_with_reference(model, env, args.reference_warmup_steps)
+        print(f"Seeded replay with {args.reference_warmup_steps} zero-residual reference transitions.", flush=True)
     configure_sac_optimization(
         model, learning_rate=args.learning_rate, batch_size=args.batch_size,
         train_freq=args.train_freq, gradient_steps=args.gradient_steps,

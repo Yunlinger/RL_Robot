@@ -31,7 +31,9 @@ class RobotConfig:
     physics_hz: int = 500
     gait_period: float = 0.8
     stance_fraction: float = 0.62
-    foot_clearance: float = 0.012
+    foot_clearance: float = 0.014
+    lateral_sway: float = 0.016
+    stride_gain: float = 1.05
     stance_height: float = 0.107
 
     @property
@@ -45,4 +47,7 @@ ROBOT = RobotConfig()
 JOINT_TYPES = ("hip_roll", "hip_pitch", "knee", "ankle_pitch", "ankle_roll")
 JOINT_NAMES = tuple(f"{side}_{joint}" for side in ("left", "right") for joint in JOINT_TYPES)
 JOINT_LIMITS = ((-0.45, 0.45), (-0.85, 0.65), (0.02, 1.5), (-0.95, 0.65), (-0.45, 0.45)) * 2
-ACTION_SCALE = (0.15, 0.22, 0.30, 0.22, 0.15) * 2
+# The reference trajectory supplies the large motion.  SAC only needs a small
+# correction for balance; limiting residuals keeps exploration from destroying
+# the stable two-foot gait.
+ACTION_SCALE = (0.03, 0.05, 0.08, 0.05, 0.03) * 2

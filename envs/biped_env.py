@@ -231,6 +231,8 @@ class BipedEnv(gym.Env):
         self.last_path_sample = state["position"][:2].copy()
         self.max_abs_lateral = 0.0
         self.max_abs_heading = 0.0
+        self.max_abs_pitch = 0.0
+        self.max_abs_roll = 0.0
         self._needs_reset = False
         if self.render_mode == "human":
             self._p.resetDebugVisualizerCamera(0.45, 40, -20, [0, 0, 0.10])
@@ -248,7 +250,7 @@ class BipedEnv(gym.Env):
         self.phase = (self.phase + self.dt / ROBOT.gait_period) % 1
         reference, expected_contacts = gait_reference(self.phase, self.target_speed, walking=self.task == "walk")
         # Ramp the gait prior on from the settled double-support pose.
-        blend = min((self.step_count + 1) * self.dt / 0.5, 1.0)
+        blend = min((self.step_count + 1) * self.dt / 0.3, 1.0)
         stand, _ = gait_reference(0, 0, walking=False)
         reference = stand + blend * (reference - stand)
         desired = np.clip(reference + applied * np.asarray(ACTION_SCALE), self.low, self.high)
@@ -274,7 +276,16 @@ class BipedEnv(gym.Env):
         self.previous_contacts = feet
         roll, pitch, yaw = p.getEulerFromQuaternion(state["orientation"])
         heading_error = self._wrap_angle(yaw)
+        # A level torso is the visual and mechanical reference for this gait.
+        # The gravity-z term below is too insensitive to small rearward lean,
+        # so penalize pitch and pitch rate explicitly.
+        pitch_cost = min((pitch / np.deg2rad(12.0))**2, 4.0)
+        pitch_rate_cost = min((state["gyro"][1] / 1.5)**2, 4.0)
+        roll_cost = min((roll / np.deg2rad(15.0))**2, 4.0)
+        roll_rate_cost = min((state["gyro"][0] / 1.5)**2, 4.0)
         height = float(state["position"][2])
+        self.max_abs_pitch = max(self.max_abs_pitch, abs(float(pitch)))
+        self.max_abs_roll = max(self.max_abs_roll, abs(float(roll)))
         terminated = bool(body_contact or height < 0.65 * self.standing_height
                           or abs(roll) > 0.7 or abs(pitch) > 0.7)
         truncated = bool(self.step_count >= self.episode_len and not terminated)
@@ -296,6 +307,10 @@ class BipedEnv(gym.Env):
             "velocity": 2.0 * float(speed_score),
             "progress": 1.0 * float(np.clip(vx / max(self.target_speed, 0.04), -1, 1)),
             "upright": 0.5 * float(-state["gravity"][2]),
+            "pitch": -0.45 * float(pitch_cost),
+            "pitch_rate": -0.04 * float(pitch_rate_cost),
+            "roll": -0.12 * float(roll_cost),
+            "roll_rate": -0.02 * float(roll_rate_cost),
             "contacts": 0.5 * contact_score,
             "pose": -0.15 * float(np.mean(((state["q"] - reference) / np.asarray(ACTION_SCALE))**2)),
             "heading": -0.65 * float(min((heading_error / 0.35)**2, 4.0)),
@@ -305,6 +320,7 @@ class BipedEnv(gym.Env):
             "bounce": -0.1 * float((vz / 0.1)**2 + height_cost),
             "energy": -0.03 * energy,
             "smooth": -0.1 * smooth_cost,
+            "residual": -1.0 * float(np.mean(applied**2)),
         }
         reward = float(sum(components.values()))
         if terminated:
@@ -319,6 +335,10 @@ class BipedEnv(gym.Env):
             "heading_error_rad": heading_error,
             "max_abs_heading_rad": self.max_abs_heading,
             "max_abs_lateral_m": self.max_abs_lateral,
+            "pitch_deg": float(np.rad2deg(pitch)),
+            "max_abs_pitch_deg": float(np.rad2deg(self.max_abs_pitch)),
+            "roll_deg": float(np.rad2deg(roll)),
+            "max_abs_roll_deg": float(np.rad2deg(self.max_abs_roll)),
             "path_length_m": self.path_length,
             "path_efficiency": planar_distance / self.path_length if self.path_length > 0 else 0.0,
             "is_fallen": terminated, "reward_terms": components,

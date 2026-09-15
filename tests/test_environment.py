@@ -9,6 +9,7 @@ from gymnasium.utils.env_checker import check_env as gym_check_env
 from stable_baselines3.common.env_checker import check_env
 
 from envs.biped_env import BipedEnv
+from envs.gait import gait_reference
 from robot_config import ROBOT, ROOT
 from scripts.build_urdf import build
 
@@ -46,6 +47,11 @@ class EnvironmentTests(unittest.TestCase):
             self.assertTrue(np.all(env.target_q <= env.high))
             self.assertTrue(np.all(np.abs(env.last_torque) <= env.force_limits + 1e-9))
 
+    def test_straight_walk_accepts_bounded_residuals(self):
+        with BipedEnv(task='walk') as env:
+            env.step(np.r_[np.ones(5), -np.ones(5)])
+            np.testing.assert_array_equal(env.last_action, np.r_[np.ones(5), -np.ones(5)])
+
     def test_bno085_heading_feedback(self):
         with BipedEnv(task='stand', imu_model='bno085', seed=42) as env:
             position = env._state()['position']
@@ -78,6 +84,14 @@ class EnvironmentTests(unittest.TestCase):
             self.assertLessEqual(info['max_abs_lateral_m'], 0.10)
             self.assertLessEqual(info['max_abs_heading_rad'], np.deg2rad(25))
             self.assertGreaterEqual(info['path_efficiency'], 0.80)
+            self.assertTrue(np.isfinite(info['max_abs_pitch_deg']))
+            self.assertTrue(np.isfinite(info['max_abs_roll_deg']))
+
+    def test_reference_step_has_clearance_and_swing(self):
+        phases = np.linspace(0.0, 1.0, 121, endpoint=False)
+        knees = np.asarray([gait_reference(phase, 0.05)[0][2] for phase in phases])
+        self.assertGreater(float(np.ptp(knees)), 0.35)
+        self.assertGreaterEqual(ROBOT.foot_clearance, 0.010)
 
     def test_fall_separate_from_timeout(self):
         with BipedEnv(task='stand', episode_len=1) as env:

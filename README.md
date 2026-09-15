@@ -54,10 +54,10 @@ PY
 python -m unittest discover -s tests -v
 ```
 
-预览零残差参考步态并导出 GIF：
+预览零残差参考步态并导出 GIF（当前默认目标速度 0.04 m/s、步幅约 21 mm、抬脚 14 mm、横向摆幅 16 mm）：
 
 ```bash
-python scripts/preview.py --gif docs/my_reference.gif
+python scripts/preview.py --gif /tmp/reference_gait_elegant.gif
 ```
 
 直接打开 PyBullet GUI：
@@ -78,23 +78,28 @@ python train_sac.py \
   --run-dir runs/smoke
 ```
 
-训练器默认使用稳定优先的设置：`2e-5` 学习率、1,000,000 条经验池、每收集 8 步只做 1 次梯度更新、较低的目标熵，以及连续三次评估达到 80% 步行成功率后早停。每次评估默认 10 个不同随机种子 episode，`best.json` 指向质量最好的 checkpoint，`final` 只表示最后一次更新，不一定最好。
+训练器使用“参考步态 + SAC 残差”：基础动作由逆运动学参考轨迹提供，策略学习平衡和推进修正。当前残差范围已收紧，训练开始前会用零残差参考动作填充经验池，再用低探索熵更新策略，避免随机动作破坏步态。奖励还会直接惩罚机身俯仰角、俯仰速度、横滚角和横滚速度，评估结果会记录机身俯仰/横滚峰值。默认使用 `2e-5` 学习率、1,000,000 条经验池、每收集 8 步只做 1 次梯度更新、目标熵 `-8`，以及连续三次评估达到 80% 步行成功率后早停。每次评估默认 10 个不同随机种子 episode，`best.json` 指向质量最好的 checkpoint，`final` 只表示最后一次更新，不一定最好。
 
-新建训练建议至少从 400,000 步开始：
+机器人起步时用 `0.3` 秒从双脚站立姿态平滑过渡到完整参考步态，兼顾响应速度和 9g 舵机的实际动作能力。
+
+新建直线行走训练建议至少从 600,000 步开始。训练器默认使用已经验证过的 `target_speed=0.04`；改变速度或步态参数后必须新建运行目录，不能加载旧模型：
 
 ```bash
 python train_sac.py \
-  --steps 400000 \
+  --steps 800000 \
   --imu bno085 \
+  --learning-starts 0 \
+  --target-entropy -8 \
+  --reference-warmup-steps 10000 \
   --eval-freq 10000 \
   --eval-episodes 10 \
-  --run-dir runs/walk_sg90
+  --run-dir runs/walk_reference_elegant
 ```
 
-Apple Silicon 上确认 MPS 可用后：
+Apple Silicon 上确认 MPS 可用后（这个小网络通常 CPU 更稳定）：
 
 ```bash
-python train_sac.py --device mps --steps 400000 --run-dir runs/walk_sg90_mps
+python train_sac.py --device mps --steps 800000 --target-speed 0.04 --learning-starts 0 --target-entropy -8 --reference-warmup-steps 10000 --run-dir runs/walk_reference_elegant_mps
 ```
 
 加入质量、摩擦、舵机强度、延迟和 IMU 噪声随机化，提高迁移鲁棒性：
@@ -109,48 +114,44 @@ python train_sac.py \
 
 每个运行目录会保存 `final/model.zip`、`final/vecnormalize.pkl`、`final/replay_buffer.pkl`、`final/config.json`、`final/evaluation.json`，以及中间 checkpoint、`evaluations.jsonl` 和 `best.json`。
 
-## 续训和评估
-
-使用带 replay buffer 的 bundle 续训：
-
-```bash
-python train_sac.py \
-  --resume runs/walk_sg90/final \
-  --steps 400000 \
-  --run-dir runs/walk_sg90_resume
-```
-
-如果已知某个中间 checkpoint 的动作最好，但它没有 `replay_buffer.pkl`，使用策略热启动。它会加载 actor/critic 和归一化统计量，重新建立一个更大的经验池，并先由已有策略采集 10,000 条正常步态经验，避免随机动作破坏已学会的步态：
-
-```bash
-python train_sac.py \
-  --init-model runs/walk_bno087/best.json \
-  --steps 400000 \
-  --eval-freq 10000 \
-  --eval-episodes 10 \
-  --run-dir runs/walk_stable_finetune
-```
-
-`runs/walk_bno087/best.json` 会自动解析到它记录的最佳 checkpoint。也可以直接填 `step_000440000` 这样的目录。不要从已经退化的 `walk_bno087/final` 继续训练。
-
-无 GUI 评估：
+`best.json` 是自动选择的最佳评估 checkpoint，按步行成功率、摔倒率、直线效率、侧偏、航向误差和机身俯仰/横滚排序。`final` 只是最后一次更新，训练后演示应使用 `best.json`：
 
 ```bash
 python test.py \
-  --model runs/walk_sg90/best.json \
+  --model runs/walk_fast_start03/final \
   --episodes 10 \
-  --output runs/walk_sg90/evaluation_10.json
+  --output runs/walk_fast_start03/verification.json
+
+python test.py --model runs/walk_fast_start03/final --episodes 1 --gui
 ```
 
-GUI 回放：
+## 续训和评估
+
+使用带 replay buffer 的 bundle 续训。只有当仿真指纹和任务参数没有变化时才使用 `--resume`；修改步态周期、抬脚高度或目标速度后请重新训练：
 
 ```bash
-python test.py --model runs/walk_sg90/best.json --episodes 1 --gui
+python train_sac.py \
+  --resume runs/walk_fast_start03/final \
+  --steps 400000 \
+  --run-dir runs/walk_fast_start03_resume
 ```
 
-加 `--require-walking` 可以让命令在没有任何成功步行 episode 时返回退出码 1。评估的 `walking_success` 同时检查未摔倒、平均速度、全程最大侧偏不超过 10 cm、全程最大航向误差不超过 25°、路径直线率不低于 80%，以及双脚抬脚/触地次数，不能只看 reward。
+如果仿真没有变化、已知某个中间 checkpoint 的动作最好，但它没有 `replay_buffer.pkl`，可以使用策略热启动。它会加载 actor/critic 和归一化统计量，重新建立经验池，并先由已有策略采集 10,000 条正常步态经验：
 
-旧模型（包括 `resume3`）仍可用旧提交的代码回放，但不能续训到这个 BNO085 版本。新策略的观测从 29 维增加到 31 维，新增 `sin(yaw)` 和 `cos(yaw)`，因此需要从头创建新的运行目录训练。
+```bash
+python train_sac.py \
+  --init-model runs/walk_fast_start03/best.json \
+  --steps 400000 \
+  --eval-freq 10000 \
+  --eval-episodes 10 \
+  --run-dir runs/walk_fast_start03_finetune
+```
+
+`best.json` 会自动解析到它记录的最佳 checkpoint。也可以直接填 `step_000440000` 这样的目录。不要从已经退化的 `final` 继续训练。旧的 `walk_bno085`/`walk_bno087` 模型使用旧步态指纹，不能作为当前抬脚/摆幅版本的 `--init-model` 起点。
+
+加 `--require-walking` 可以让命令在没有任何成功步行 episode 时返回退出码 1。评估的 `walking_success` 同时检查未摔倒、平均速度、全程最大侧偏不超过 10 cm、全程最大航向误差不超过 25°、机身最大俯仰/横滚不超过 15°、路径直线率不低于 80%，以及双脚抬脚/触地次数，不能只看 reward。
+
+旧模型（包括 `resume3`）如果来自不同步态参数，仍不能加载到当前版本。当前代码的 simulator fingerprint 会阻止误用旧模型；看到 `Simulator changed since training` 时，请用上面的新建训练命令。旧的 `walk_bno085/best.json` 可在旧基线代码下回放，新版本训练应使用新的运行目录。
 
 ## 实物制作建议
 
@@ -181,4 +182,4 @@ python -m unittest discover -s tests -v
 
 ## 验证结论
 
-本版本在 macOS 上已通过 11 项自动检查，包括 Gymnasium/SB3 环境契约、BNO085 航向反馈、随机种子、独立物理客户端、舵机限幅、跌倒与超时区分、随机化 reset、直线轨迹约束、渲染、模型保存/恢复和 replay buffer 续训。零残差参考步态可在仿真中连续运行 12 秒，约前进 0.28 m 且不摔倒。SAC 短训练可以正常更新网络并恢复 bundle；正式步态需要按训练曲线和 `evaluation.json` 判断。
+本版本在 macOS 上已通过 14 项自动检查，包括 Gymnasium/SB3 环境契约、BNO085 航向反馈、随机种子、独立物理客户端、舵机限幅、左右残差接口、跌倒与超时区分、随机化 reset、直线轨迹约束、渲染、模型保存/恢复、参考步幅和 replay buffer 续训。新的零残差参考步态在仿真中连续运行 12 秒，约前进 0.34 m、最大横向偏移约 6 cm、最大航向误差约 24° 且不摔倒。SAC 正式训练要以 `best.json` 的评估结果为准。

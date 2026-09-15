@@ -7,10 +7,26 @@ import torch
 from stable_baselines3 import SAC
 
 from training import (configure_sac_optimization, evaluate, load_bundle, make_vec_env,
-                      prefill_replay_with_policy, reset_replay_buffer, save_bundle)
+                      prefill_replay_with_policy, prefill_replay_with_reference,
+                      reset_replay_buffer, save_bundle)
 
 
 class TrainingTests(unittest.TestCase):
+    def test_reference_replay_prefill(self):
+        torch.set_num_threads(1)
+        config = dict(episode_len=20, target_speed=0.04, task='walk',
+                      domain_randomization=False, imu_model='bno085', seed=7)
+        env = make_vec_env(config, training=True)
+        try:
+            model = SAC('MlpPolicy', env, device='cpu', batch_size=16,
+                        buffer_size=64, learning_starts=0, seed=7,
+                        policy_kwargs={'net_arch': [16, 16]})
+            prefill_replay_with_reference(model, env, 32)
+            self.assertEqual(model.replay_buffer.size(), 32)
+            self.assertEqual(model.num_timesteps, 0)
+        finally:
+            env.close()
+
     def test_gradient_updates_bundle_roundtrip_and_resume(self):
         torch.set_num_threads(1)
         config = dict(episode_len=20, target_speed=0.04, task='walk',
